@@ -29,6 +29,7 @@ public class TempPermTabCompleter implements TabCompleter {
                     .filter(a -> a.startsWith(args[1].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());
         }
+        // TODO: Better placeholders auto-complete. It is very bad at the moment
         if (args.length == 3 && (args[1].equalsIgnoreCase("add") || args[1].equalsIgnoreCase("remove"))) {
             return Bukkit.getPluginManager().getPermissions().stream()
                     .map(perm -> perm.getName())

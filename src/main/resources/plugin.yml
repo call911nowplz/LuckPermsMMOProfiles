@@ -1,5 +1,6 @@
 name: MMOperms
 version: 1.0
+author: Call911
 main: arcane.luckpermsrefresh.plugin.RefreshProfilePerms
 api-version: 1.21
 depend: [MMOProfiles, LuckPerms, Vault]

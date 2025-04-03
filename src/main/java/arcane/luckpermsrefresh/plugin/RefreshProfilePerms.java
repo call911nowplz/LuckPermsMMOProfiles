@@ -39,6 +39,7 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
 
     @Override
     public void onEnable() {
+        // TODO: Add alias to the commands. mmoperm is too weird but better than /tempperm
         if (this.getCommand("mmoperm") != null) {
             this.getCommand("mmoperm").setExecutor(this);
             this.getCommand("mmoperm").setTabCompleter(new TempPermTabCompleter());
@@ -69,6 +70,7 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
                 return true;
             }
             // If sender is not a player, output plain text
+            // TODO: Add a message that says "Copied!" without making a new command
             if (!(sender instanceof Player)) {
                 sender.sendMessage("§e" + offline.getName() + " Profiles UUIDs:");
                 int index = 1;
@@ -139,6 +141,8 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
         String context = args.length > 3 ? String.join(" ", Arrays.copyOfRange(args, 3, args.length)) : "";
         Player target = Bukkit.getPlayer(uuid);
 
+        // The reason why we did not use LuckPerms API. I could not make it work unless using the command
+        // For consistency, Use LP commands for both removing and adding
         if (action.equals("remove")) {
             User user = luckPerms.getUserManager().getUser(uuid);
             boolean hasGlobal = user != null && user.getNodes().stream()
@@ -168,6 +172,7 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
         return true;
     }
 
+    // Taken from https://github.com/CKATEPTb-minecraft/MMOProfilesExtraPerms
     @EventHandler
     public void onProfileDispatch(PlayerIdDispatchEvent event) {
         UUID fakeId = event.getFakeId();
