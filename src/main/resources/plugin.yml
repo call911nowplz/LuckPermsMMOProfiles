@@ -1,0 +1,9 @@
+name: LuckpermsRefresher
+version: 1.0
+main: arcane.luckpermsrefresh.plugin.RefreshProfilePerms
+api-version: 1.21
+depend: [MMOProfiles, LuckPerms, Vault]
+commands:
+  tempperm:
+    description: Adds a permission via Vault and LuckPerms
+    usage: /tempperm <uuid> add <permission>
