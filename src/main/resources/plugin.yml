@@ -4,6 +4,11 @@ main: arcane.luckpermsrefresh.plugin.RefreshProfilePerms
 api-version: 1.21
 depend: [MMOProfiles, LuckPerms, Vault]
 commands:
-  tempperm:
+  mmoperm:
     description: Adds a permission via Vault and LuckPerms
-    usage: /tempperm <uuid> add <permission>
+    usage: /mmoperm <uuid> add <permission>
+  listprofiles:
+     description: Check player profile's UUID
+     usage: /listprofiles <name>
+  copyuuid:
+    description: returns a message for copying
