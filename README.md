@@ -2,7 +2,7 @@
 
 A simple Minecraft plugin that allows you to **add and remove permissions for MMOProfiles fake UUIDs** on-the-fly — no relog required.
 
-### ✅ Features
+### Features
 
 - Supports **MMOProfiles** (proxy mode or not)
 - Works with **LuckPerms** directly via command dispatch
@@ -20,7 +20,7 @@ A simple Minecraft plugin that allows you to **add and remove permissions for MM
   I am not sure if it works without it
 
 
-### 📦 Installation
+### Installation
 
 1. Place the plugin `.jar` into your `plugins` folder.
 2. Ensure LuckPerms and MMOProfiles are installed and working.
