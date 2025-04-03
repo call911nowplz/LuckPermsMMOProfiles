@@ -1,41 +1,63 @@
-# ProfileServerRedirect
+# MMOProfilePerms
 
-This plugin handles automatic server redirection for players based on profile selection using MMOProfiles.
+A lightweight Minecraft plugin for managing **LuckPerms permissions** attached to **MMOProfiles' fake UUIDs**, with live Bukkit attachments. Add, remove, and inspect permissions on a per-profile basis — **no relog required**.
 
-It supports both newly created profiles and existing ones, redirecting players to the correct server after detecting their status using PlaceholderAPI.
-
-NOTE: It doesn't support custom profile names due to the use of placeholders to detect profile selection (in proxy mode profile selection event doesn't work)
+---
 
 ## Features
 
-- Sends players to a different server upon profile creation or selection
-- Freezes and hides players until a profile is selected
-- Uses %mmoprofiles_current_profile_name% to detect profile state
-- Optional permission bypass (`profileswitch.bypass`)
-- Fully configurable delays and settings via `config.yml`
+- Fully supports **MMOProfiles** and **LuckPerms**
+- Compatible with **proxy-mode** profiles
+- Add or remove permissions without the need to re-log
+- Supports **contexts** (e.g. `server=spawn`, `world=hub`)
+- Automatically resolves **player names to current profile UUIDs**
+- Use UUIDs directly for offline profiles
+- Includes `/listprofiles` command for easy UUID discovery (click to copy)
 
-## Configuration (`config.yml`)
+---
 
-```yaml
-profile-prefix: "Profile N"            # Placeholder profile prefix to detect
-server-on-profile-create: "lobby"      # Server to send player after profile creation
-server-on-profile-select: "RPG"        # Server to send player when selecting existing profile
-kick-message: "Server is full!"        # Message shown if kicked
-profile-create-delay: 40               # Delay (ticks) before redirect on profile create
-profile-select-delay: 100              # Cooldown (ticks) to prevent repeated redirects
-kick-delay: 100                        # Delay (ticks) before kicking player
-```
+## Commands
 
-## Permissions
+### `/mmoperm <player|UUID> <add|remove|check|permissions> [permission] [context...]`
 
-- `profileswitch.bypass`: Skips redirection and allows normal login/movement
+- `add` / `remove`: Adds or removes a permission (uses LuckPerms & Bukkit attachment)
+- `check`: Executes `lp user <uuid> info`
+- `permissions`: Executes `lp user <uuid> permission info`
 
-## Dependencies
+You can use either a **player name** (uses their current active profile) or **UUID** (useful for offline users).
 
-- [MMOProfiles](https://www.spigotmc.org/resources/)
-- [PlaceholderAPI](https://www.spigotmc.org/resources/placeholderapi.6245/)
-- BungeeCord or Velocity (with plugin messaging enabled)
+---
 
-## License
+### `/listprofiles <player>`
 
-This plugin is intended for private/custom server use. Contact the author for distribution or reuse.
+- Lists all profiles and UUIDs for the given player
+- If run in-game, **clickable UUIDs** let you copy them to clipboard
+- Console output is plain text
+
+---
+
+## Requirements
+
+- Minecraft **1.20+** (tested on Paper 1.21.4)
+- **LuckPerms** (API 5.4+)
+- **MMOProfiles**
+
+---
+
+## Installation
+
+1. Drop the `.jar` file into your `/plugins` directory
+2. Ensure **LuckPerms** and **MMOProfiles** are installed
+3. Restart the server
+
+---
+
+## Why not use the LuckPerms API directly?
+
+Because command dispatching is simple and supports LuckPerms contexts perfectly. It just works — no need for complex API integration.
+
+---
+
+## Support
+
+Need help or want to suggest something? Join my [Discord server](https://discord.gg/JEqREs76yh) and open a ticket!
