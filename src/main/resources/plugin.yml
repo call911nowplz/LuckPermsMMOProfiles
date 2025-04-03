@@ -1,4 +1,4 @@
-name: LuckpermsRefresher
+name: MMOperms
 version: 1.0
 main: arcane.luckpermsrefresh.plugin.RefreshProfilePerms
 api-version: 1.21
@@ -10,5 +10,3 @@ commands:
   listprofiles:
      description: Check player profile's UUID
      usage: /listprofiles <name>
-  copyuuid:
-    description: returns a message for copying

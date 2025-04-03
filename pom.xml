@@ -4,11 +4,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.arcane</groupId>
-    <artifactId>LuckpermsRefresher</artifactId>
+    <artifactId>MMOperms</artifactId>
     <version>1.0</version>
     <packaging>jar</packaging>
 
-    <name>LuckpermsRefresher</name>
+    <name>MMOperms</name>
 
     <properties>
         <java.version>21</java.version>
