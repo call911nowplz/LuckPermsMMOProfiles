@@ -16,8 +16,7 @@ A simple Minecraft plugin that allows you to **add and remove permissions for MM
 - LuckPerms (API 5.4+)
 - MMOProfiles (with Profile-API)
 
-- I have only tested this with MMOProfilesExtraPerms (https://github.com/CKATEPTb-minecraft/MMOProfilesExtraPerms)
-  I am not sure if it works without it
+- I have only tested this with [MMOProfilesExtraPerms](https://github.com/CKATEPTb-minecraft/MMOProfilesExtraPerms) I am not sure if it works without it
 
 
 ### Installation
