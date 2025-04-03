@@ -33,3 +33,5 @@ A simple Minecraft plugin that allows you to **add and remove permissions for MM
 
 
 I am aware i can use LuckPerms API directly instead of commands, But this works just as good so i didn't bother
+
+For support or questions, Join my [Discord](https://discord.gg/JEqREs76yh) and open a ticket
