@@ -24,6 +24,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -54,9 +55,16 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
         getLogger().info("RefreshProfilePerms loaded.");
     }
 
+    @Override
+    public void onDisable() {
+        // Clear the fakeToReal mapping to avoid memory leaks
+        fakeToReal.clear();
+        getLogger().info("RefreshProfilePerms disabled.");
+    }
+
     @EventHandler
     public void onPlayerIdDispatch(PlayerIdDispatchEvent event) {
-        if (event.getFakeId() != null && event.getInitialId() != null) {
+        if (event.getFakeId() != null) {
             fakeToReal.put(event.getFakeId(), event.getInitialId());
             if (isDebug()) getLogger().info("[Dispatch] Mapped Fake UUID " + event.getFakeId() + " to Real UUID " + event.getInitialId());
         } else {
@@ -69,6 +77,14 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
         Player player = event.getPlayer();
         int delay = getConfig().getInt("syncDelay", 40);
         Bukkit.getScheduler().runTaskLater(this, () -> syncPlayer(player), delay);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        // Remove the player's mapping from fakeToReal to avoid memory leaks
+        UUID fakeUUID = event.getPlayer().getUniqueId();
+        fakeToReal.remove(fakeUUID);
+        if (isDebug()) getLogger().info("[Quit] Removed mapping for fake UUID " + fakeUUID);
     }
 
     private void syncPlayer(Player player) {
@@ -94,6 +110,7 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
 
             attachGlobalPermissions(player, realUser, groupManager, serverName);
             syncFakeUserGroups(realUser, fakeUser, fakeUUID);
+            syncFakeUserMeta(realUser, fakeUser, fakeUUID);
             attachProfilePermissions(player, fakeUser, groupManager, serverName);
         });
     }
@@ -108,12 +125,12 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
                 .collect(Collectors.toSet());
 
         List<String> perms = globalNodes.stream()
-                .filter(n -> !n.getKey().startsWith("group."))
                 .map(Node::getKey)
-                .collect(Collectors.toList());
+                .filter(key -> !key.startsWith("group."))
+                .toList();
         List<String> groups = realUserGroups.stream()
                 .map(InheritanceNode::getGroupName)
-                .collect(Collectors.toList());
+                .toList();
 
         if (isDebug()) {
             getLogger().info("[Sync] Global permissions for " + player.getName() + ": " + perms);
@@ -139,13 +156,13 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
         Set<String> seenGroupsProfile = new HashSet<>();
         Collection<Node> profileNodes = unwrapPermissions(fakeUser.data().toCollection(), groupManager, serverName, seenGroupsProfile);
         List<String> profilePerms = profileNodes.stream()
-                .filter(n -> !n.getKey().startsWith("group."))
                 .map(Node::getKey)
-                .collect(Collectors.toList());
+                .filter(key -> !key.startsWith("group."))
+                .toList();
         List<String> profileGroups = profileNodes.stream()
-                .filter(n -> n.getKey().startsWith("group."))
                 .map(Node::getKey)
-                .collect(Collectors.toList());
+                .filter(key -> key.startsWith("group."))
+                .toList();
         if (isDebug()) {
             getLogger().info("[Sync] Profile permissions for " + player.getName() + ": " + profilePerms);
             getLogger().info("[Sync] Profile groups for " + player.getName() + ": " + profileGroups);
@@ -186,6 +203,25 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
                 InheritanceNode node = InheritanceNode.builder(realGroup.getGroupName()).build();
                 fakeUser.data().add(node);
                 if (isDebug()) getLogger().info("[Group Sync] Assigned group " + realGroup.getGroupName() + " to profile UUID " + fakeUUID);
+            }
+        }
+        luckPerms.getUserManager().saveUser(fakeUser);
+    }
+
+    // This new method is supposed to fix the issue with prefixes
+    // from groups not being removed if the main profile no longer has them
+    private void syncFakeUserMeta(User realUser, User fakeUser, UUID fakeUUID) {
+        Set<Node> realMetaNodes = realUser.getNodes().stream()
+                .filter(n -> n.getKey().startsWith("prefix.") || n.getKey().startsWith("suffix."))
+                .collect(Collectors.toSet());
+        Set<Node> fakeMetaNodes = fakeUser.getNodes().stream()
+                .filter(n -> n.getKey().startsWith("prefix.") || n.getKey().startsWith("suffix."))
+                .collect(Collectors.toSet());
+
+        for (Node fakeMeta : fakeMetaNodes) {
+            if (!realMetaNodes.contains(fakeMeta)) {
+                fakeUser.data().remove(fakeMeta);
+                if (isDebug()) getLogger().info("[Meta Sync] Removed meta node " + fakeMeta.getKey() + " from fake profile " + fakeUUID);
             }
         }
         luckPerms.getUserManager().saveUser(fakeUser);

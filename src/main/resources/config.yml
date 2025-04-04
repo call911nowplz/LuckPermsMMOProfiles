@@ -3,3 +3,6 @@ debug: false
 
 # Delay in ticks after player join before syncing permissions (default: 40 ticks ≈ 2 seconds)
 syncDelay: 40
+
+# Maximum amount of retries if profile is not loaded yet
+syncMaxRetries: 5
