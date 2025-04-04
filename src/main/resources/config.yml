@@ -1,0 +1,5 @@
+# Set to true to enable verbose debug logging
+debug: false
+
+# Delay in ticks after player join before syncing permissions (default: 40 ticks ≈ 2 seconds)
+syncDelay: 40

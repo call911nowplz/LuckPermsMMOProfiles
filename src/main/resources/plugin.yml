@@ -8,6 +8,7 @@ commands:
   mmoperm:
     description: Adds a permission via Vault and LuckPerms
     usage: /mmoperm <uuid> add <permission>
+    aliases: [tempperm, mp]
   listprofiles:
      description: Check player profile's UUID
      usage: /listprofiles <name>

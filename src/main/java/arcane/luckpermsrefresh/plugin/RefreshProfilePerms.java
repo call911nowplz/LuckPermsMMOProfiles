@@ -1,8 +1,6 @@
 package arcane.luckpermsrefresh.plugin;
 
-import fr.phoenixdevt.profiles.ProfileList;
-import fr.phoenixdevt.profiles.ProfileProvider;
-import fr.phoenixdevt.profiles.PlayerProfile;
+import fr.phoenixdevt.profiles.*;
 import fr.phoenixdevt.profiles.event.PlayerIdDispatchEvent;
 import net.luckperms.api.LuckPerms;
 import net.luckperms.api.LuckPermsProvider;
@@ -12,6 +10,7 @@ import net.luckperms.api.model.group.GroupManager;
 import net.luckperms.api.model.user.User;
 import net.luckperms.api.model.user.UserManager;
 import net.luckperms.api.node.Node;
+import net.luckperms.api.node.types.InheritanceNode;
 import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -20,43 +19,219 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, Listener {
 
     private LuckPerms luckPerms;
+    private final Map<UUID, UUID> fakeToReal = new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {
-        // TODO: Add alias to the commands. mmoperm is too weird but better than /tempperm
+        // alias added in plugin.yml instead
+        saveDefaultConfig();
         if (this.getCommand("mmoperm") != null) {
             this.getCommand("mmoperm").setExecutor(this);
             this.getCommand("mmoperm").setTabCompleter(new TempPermTabCompleter());
         }
-
         if (this.getCommand("listprofiles") != null) {
             this.getCommand("listprofiles").setExecutor(this);
         }
-
         Bukkit.getPluginManager().registerEvents(this, this);
         this.luckPerms = LuckPermsProvider.get();
-
         getLogger().info("RefreshProfilePerms loaded.");
+    }
+
+    @EventHandler
+    public void onPlayerIdDispatch(PlayerIdDispatchEvent event) {
+        if (event.getFakeId() != null && event.getInitialId() != null) {
+            fakeToReal.put(event.getFakeId(), event.getInitialId());
+            if (isDebug()) getLogger().info("[Dispatch] Mapped Fake UUID " + event.getFakeId() + " to Real UUID " + event.getInitialId());
+        } else {
+            getLogger().warning("[Dispatch] Missing Fake or Real UUID for player: " + event.getPlayer().getName());
+        }
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        int delay = getConfig().getInt("syncDelay", 40);
+        Bukkit.getScheduler().runTaskLater(this, () -> syncPlayer(player), delay);
+    }
+
+    private void syncPlayer(Player player) {
+        UUID fakeUUID = player.getUniqueId();
+        UUID realUUID = fakeToReal.get(fakeUUID);
+        getLogger().info("[Sync] Attempting sync for " + player.getName() + " (Fake UUID: " + fakeUUID + ")");
+        if (realUUID == null) {
+            getLogger().warning("[Sync] No real UUID found for " + fakeUUID);
+            return;
+        }
+        getLogger().info("[Sync] Found real UUID for " + player.getName() + ": " + realUUID);
+
+        UserManager userManager = luckPerms.getUserManager();
+        GroupManager groupManager = luckPerms.getGroupManager();
+        String serverName = luckPerms.getServerName();
+
+        // Load both real and fake users
+        CompletableFuture<User> realUserFuture = userManager.loadUser(realUUID);
+        CompletableFuture<User> fakeUserFuture = userManager.loadUser(fakeUUID);
+        CompletableFuture.allOf(realUserFuture, fakeUserFuture).thenAccept(ignored -> {
+            User realUser = realUserFuture.join();
+            User fakeUser = fakeUserFuture.join();
+
+            attachGlobalPermissions(player, realUser, groupManager, serverName);
+            syncFakeUserGroups(realUser, fakeUser, fakeUUID);
+            attachProfilePermissions(player, fakeUser, groupManager, serverName);
+        });
+    }
+
+    // Attaches global permissions and groups (from real user)
+    private void attachGlobalPermissions(Player player, User realUser, GroupManager groupManager, String serverName) {
+        Set<String> seenGroups = new HashSet<>();
+        Collection<Node> globalNodes = unwrapPermissions(realUser.data().toCollection(), groupManager, serverName, seenGroups);
+        Set<InheritanceNode> realUserGroups = realUser.getNodes().stream()
+                .filter(n -> n instanceof InheritanceNode)
+                .map(n -> (InheritanceNode) n)
+                .collect(Collectors.toSet());
+
+        List<String> perms = globalNodes.stream()
+                .filter(n -> !n.getKey().startsWith("group."))
+                .map(Node::getKey)
+                .collect(Collectors.toList());
+        List<String> groups = realUserGroups.stream()
+                .map(InheritanceNode::getGroupName)
+                .collect(Collectors.toList());
+
+        if (isDebug()) {
+            getLogger().info("[Sync] Global permissions for " + player.getName() + ": " + perms);
+            getLogger().info("[Sync] Global groups for " + player.getName() + ": " + groups);
+        }
+        Bukkit.getScheduler().runTask(this, () -> {
+            PermissionAttachment attachment = player.addAttachment(this);
+            for (Node node : globalNodes) {
+                attachment.setPermission(node.getKey(), node.getValue());
+                if (isDebug()) getLogger().info("[Attach Perm] " + node.getKey() + " = " + node.getValue());
+            }
+            for (InheritanceNode group : realUserGroups) {
+                attachment.setPermission(group.getKey(), true);
+                if (isDebug()) getLogger().info("[Attach Group] " + group.getKey() + " = true");
+            }
+            player.recalculatePermissions();
+            if (isDebug()) getLogger().info("[Sync] Global permissions & groups attached to " + player.getName());
+        });
+    }
+
+    // Attaches profile-specific permissions from the fake user live to the player
+    private void attachProfilePermissions(Player player, User fakeUser, GroupManager groupManager, String serverName) {
+        Set<String> seenGroupsProfile = new HashSet<>();
+        Collection<Node> profileNodes = unwrapPermissions(fakeUser.data().toCollection(), groupManager, serverName, seenGroupsProfile);
+        List<String> profilePerms = profileNodes.stream()
+                .filter(n -> !n.getKey().startsWith("group."))
+                .map(Node::getKey)
+                .collect(Collectors.toList());
+        List<String> profileGroups = profileNodes.stream()
+                .filter(n -> n.getKey().startsWith("group."))
+                .map(Node::getKey)
+                .collect(Collectors.toList());
+        if (isDebug()) {
+            getLogger().info("[Sync] Profile permissions for " + player.getName() + ": " + profilePerms);
+            getLogger().info("[Sync] Profile groups for " + player.getName() + ": " + profileGroups);
+        }
+        Bukkit.getScheduler().runTask(this, () -> {
+            PermissionAttachment profileAttachment = player.addAttachment(this);
+            for (Node node : profileNodes) {
+                profileAttachment.setPermission(node.getKey(), node.getValue());
+                if (isDebug()) getLogger().info("[Attach Profile] " + node.getKey() + " = " + node.getValue());
+            }
+            if (isDebug()) getLogger().info("[Attach] Profile-specific permissions attached to " + player.getName());
+        });
+    }
+
+    // Syncs groups persistently from the real user to the fake user
+    private void syncFakeUserGroups(User realUser, User fakeUser, UUID fakeUUID) {
+        Set<InheritanceNode> fakeGroups = fakeUser.getNodes().stream()
+                .filter(n -> n instanceof InheritanceNode)
+                .map(n -> (InheritanceNode) n)
+                .collect(Collectors.toSet());
+        Set<String> realGroupNames = realUser.getNodes().stream()
+                .filter(n -> n instanceof InheritanceNode)
+                .map(n -> ((InheritanceNode) n).getGroupName())
+                .collect(Collectors.toSet());
+        for (InheritanceNode fakeGroup : fakeGroups) {
+            if (!realGroupNames.contains(fakeGroup.getGroupName())) {
+                fakeUser.data().remove(fakeGroup);
+                if (isDebug()) getLogger().info("[Group Sync] Removed group " + fakeGroup.getGroupName() + " from profile UUID " + fakeUUID);
+            }
+        }
+        for (InheritanceNode realGroup : realUser.getNodes().stream()
+                .filter(n -> n instanceof InheritanceNode)
+                .map(n -> (InheritanceNode) n)
+                .collect(Collectors.toSet())) {
+            boolean alreadyPresent = fakeGroups.stream()
+                    .anyMatch(n -> n.getGroupName().equalsIgnoreCase(realGroup.getGroupName()));
+            if (!alreadyPresent) {
+                InheritanceNode node = InheritanceNode.builder(realGroup.getGroupName()).build();
+                fakeUser.data().add(node);
+                if (isDebug()) getLogger().info("[Group Sync] Assigned group " + realGroup.getGroupName() + " to profile UUID " + fakeUUID);
+            }
+        }
+        luckPerms.getUserManager().saveUser(fakeUser);
+    }
+
+    // Recursively unwraps permission nodes, filtering by server context and skipping prefix/suffix nodes
+    private Collection<Node> unwrapPermissions(Collection<Node> nodes, GroupManager groupManager, String serverName, Set<String> seenGroups) {
+        return nodes.stream().flatMap(node -> {
+            if (node.getKey().startsWith("group.")) {
+                String[] split = node.getKey().split("\\.");
+                if (split.length > 1) {
+                    String groupName = split[1].toLowerCase();
+                    if (seenGroups.contains(groupName)) return Stream.empty();
+                    seenGroups.add(groupName);
+                    Group group = groupManager.getGroup(groupName);
+                    if (group != null) {
+                        return unwrapPermissions(group.data().toCollection(), groupManager, serverName, seenGroups).stream();
+                    }
+                }
+            }
+            // Skip prefix and suffix nodes
+            if (node.getKey().startsWith("prefix.") || node.getKey().startsWith("suffix.")) {
+                return Stream.empty();
+            }
+            ImmutableContextSet ctx = node.getContexts();
+            Set<String> servers = ctx.getValues("server");
+            if (!servers.isEmpty() && !servers.contains(serverName)) return Stream.empty();
+            return Stream.of(node);
+        }).collect(Collectors.toSet());
+    }
+
+    private boolean isDebug() {
+        return getConfig().getBoolean("debug", true);
+    }
+
+    private void sendMessage(CommandSender sender, Component message) {
+        if (sender instanceof Audience audience) {
+            audience.sendMessage(message);
+        } else {
+            sender.sendMessage(LegacyComponentSerializer.legacyAmpersand().serialize(message));
+        }
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        // TODO: Add offline players support
         if (command.getName().equalsIgnoreCase("listprofiles")) {
             if (args.length != 1) {
                 sendMessage(sender, Component.text("Usage: /listprofiles <player>", NamedTextColor.YELLOW));
@@ -64,7 +239,13 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
             }
             OfflinePlayer offline = Bukkit.getOfflinePlayer(args[0]);
             ProfileProvider provider = Bukkit.getServicesManager().getRegistration(ProfileProvider.class).getProvider();
-            ProfileList profileList = provider.getPlayerData(offline.getUniqueId());
+            ProfileList profileList;
+            try {
+                profileList = provider.getPlayerData(offline.getUniqueId());
+            } catch (Exception ex) {
+                sendMessage(sender, Component.text("Profile data is not loaded for this offline player.", NamedTextColor.RED));
+                return true;
+            }
             if (profileList == null) {
                 sendMessage(sender, Component.text("No profiles found for this player.", NamedTextColor.RED));
                 return true;
@@ -97,19 +278,17 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
             }
             return true;
         }
+
         if (!sender.hasPermission("mmoperm.use")) {
             sendMessage(sender, Component.text("You do not have permission to use this command.", NamedTextColor.RED));
             return true;
         }
-
         if (args.length < 2) {
             sendMessage(sender, Component.text("Usage: /mmoperm <player|UUID> <add|remove|check|permissions> [permission] [context...]", NamedTextColor.YELLOW));
             return true;
         }
-
         String playerName = args[0];
         String action = args[1].toLowerCase();
-
         UUID uuid;
         try {
             uuid = UUID.fromString(playerName);
@@ -119,30 +298,21 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
             ProfileList profileList = provider.getPlayerData(offline.getUniqueId());
             uuid = profileList.getCurrent().getUniqueId();
         }
-
         if (action.equals("check")) {
-            String cmd = "lp user " + uuid + " info";
-            Bukkit.dispatchCommand(sender, cmd);
+            Bukkit.dispatchCommand(sender, "lp user " + uuid + " info");
             return true;
         }
-
         if (action.equals("permissions")) {
-            String cmd = "lp user " + uuid + " permission info";
-            Bukkit.dispatchCommand(sender, cmd);
+            Bukkit.dispatchCommand(sender, "lp user " + uuid + " permission info");
             return true;
         }
-
         if (args.length < 3) {
-            sendMessage(sender, Component.text("Usage: /mmoperm <player> <add|remove> <permission> [context...]", NamedTextColor.YELLOW));
+            sendMessage(sender, Component.text("Usage: /mmoperm <player> <add|remove|check|permissions> [permission] [context...]", NamedTextColor.YELLOW));
             return true;
         }
-
         String permissionNode = args[2];
         String context = args.length > 3 ? String.join(" ", Arrays.copyOfRange(args, 3, args.length)) : "";
         Player target = Bukkit.getPlayer(uuid);
-
-        // The reason why we did not use LuckPerms API. I could not make it work unless using the command
-        // For consistency, Use LP commands for both removing and adding
         if (action.equals("remove")) {
             User user = luckPerms.getUserManager().getUser(uuid);
             boolean hasGlobal = user != null && user.getNodes().stream()
@@ -152,13 +322,11 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
                 return true;
             }
         }
-
         String lpCommand = "lp user " + uuid + " permission " + (action.equals("add") ? "set" : "unset") + " " + permissionNode;
         if (!context.isEmpty()) {
             lpCommand += " " + context;
         }
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), lpCommand);
-
         Bukkit.getScheduler().runTask(this, () -> {
             if (target != null && target.isOnline()) {
                 PermissionAttachment attachment = target.addAttachment(this);
@@ -168,60 +336,6 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
                 sendMessage(sender, Component.text("Permission " + action + "ed via command. Player is not online.", NamedTextColor.YELLOW));
             }
         });
-
         return true;
-    }
-
-    // Taken from https://github.com/CKATEPTb-minecraft/MMOProfilesExtraPerms
-    @EventHandler
-    public void onProfileDispatch(PlayerIdDispatchEvent event) {
-        UUID fakeId = event.getFakeId();
-        if (fakeId == null) return;
-
-        UserManager userManager = luckPerms.getUserManager();
-        GroupManager groupManager = luckPerms.getGroupManager();
-        String serverName = luckPerms.getServerName();
-
-        Player player = event.getPlayer();
-
-        userManager.loadUser(fakeId).thenAccept(user -> {
-            Set<String> seenGroups = new HashSet<>();
-            Collection<Node> allNodes = unwrapPermissions(user.data().toCollection(), groupManager, serverName, seenGroups);
-            Bukkit.getScheduler().runTask(this, () -> {
-                for (Node node : allNodes) {
-                    player.addAttachment(this, node.getKey(), node.getValue());
-                }
-            });
-        });
-    }
-
-    private Collection<Node> unwrapPermissions(Collection<Node> nodes, GroupManager groupManager, String serverName, Set<String> seenGroups) {
-        return nodes.stream().flatMap(node -> {
-            if (node.getKey().startsWith("group.")) {
-                String[] split = node.getKey().split("\\.");
-                if (split.length > 1) {
-                    String groupName = split[1].toLowerCase();
-                    if (seenGroups.contains(groupName)) return Stream.empty();
-                    seenGroups.add(groupName);
-                    Group group = groupManager.getGroup(groupName);
-                    if (group != null) {
-                        return unwrapPermissions(group.data().toCollection(), groupManager, serverName, seenGroups).stream();
-                    }
-                }
-            }
-            ImmutableContextSet ctx = node.getContexts();
-            Set<String> servers = ctx.getValues("server");
-            if (!servers.isEmpty() && !servers.contains(serverName)) return Stream.empty();
-            return Stream.of(node);
-        }).collect(Collectors.toSet());
-    }
-
-    // Helper method to send a Component message to any CommandSender
-    private void sendMessage(CommandSender sender, Component message) {
-        if (sender instanceof Audience audience) {
-            audience.sendMessage(message);
-        } else {
-            sender.sendMessage(LegacyComponentSerializer.legacyAmpersand().serialize(message));
-        }
     }
 }
