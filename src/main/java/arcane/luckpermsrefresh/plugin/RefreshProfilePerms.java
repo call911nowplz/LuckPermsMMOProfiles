@@ -52,14 +52,14 @@ public class RefreshProfilePerms extends JavaPlugin implements CommandExecutor, 
         }
         Bukkit.getPluginManager().registerEvents(this, this);
         this.luckPerms = LuckPermsProvider.get();
-        getLogger().info("RefreshProfilePerms loaded.");
+        getLogger().info("LuckPermsMMOProfiles loaded.");
     }
 
     @Override
     public void onDisable() {
         // Clear the fakeToReal mapping to avoid memory leaks
         fakeToReal.clear();
-        getLogger().info("RefreshProfilePerms disabled.");
+        getLogger().info("LuckPermsMMOProfiles disabled.");
     }
 
     @EventHandler
